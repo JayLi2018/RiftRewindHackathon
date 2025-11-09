@@ -1,0 +1,109 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* League of Legends themed design system */
+    --background: 220 30% 5%;
+    --foreground: 45 100% 95%;
+
+    --card: 220 25% 8%;
+    --card-foreground: 45 100% 95%;
+
+    --popover: 220 30% 6%;
+    --popover-foreground: 45 100% 95%;
+
+    /* LoL Gold - Primary color */
+    --primary: 42 76% 51%;
+    --primary-foreground: 220 30% 5%;
+    --primary-glow: 42 100% 65%;
+
+    /* Blue accent */
+    --secondary: 210 80% 55%;
+    --secondary-foreground: 220 30% 5%;
+
+    --muted: 220 20% 15%;
+    --muted-foreground: 45 20% 60%;
+
+    --accent: 210 80% 55%;
+    --accent-foreground: 220 30% 5%;
+
+    --destructive: 0 85% 60%;
+    --destructive-foreground: 45 100% 95%;
+
+    --border: 220 20% 20%;
+    --input: 220 20% 15%;
+    --ring: 42 76% 51%;
+
+    --radius: 0.5rem;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(42 76% 51%), hsl(42 100% 65%));
+    --gradient-dark: linear-gradient(180deg, hsl(220 30% 5%), hsl(220 25% 8%));
+    --gradient-card: linear-gradient(135deg, hsl(220 25% 8% / 0.8), hsl(220 20% 12% / 0.8));
+    
+    /* Shadows & Glows */
+    --shadow-glow: 0 0 30px hsl(42 76% 51% / 0.3);
+    --shadow-glow-lg: 0 0 50px hsl(42 76% 51% / 0.4);
+    --shadow-card: 0 10px 40px hsl(220 30% 0% / 0.5);
+    
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* LoL hero background utility
+   Place a background image at /public/lol-bg.jpg (or change the URL below).
+   The image will be overlaid with a dark fade so UI remains legible.
+*/
+.bg-lol-hero {
+  /* Use only the supplied hero image as a gentle backdrop; remove placeholder fallback which
+     can create a visible gray tile over the video. The video itself will play above this.
+  */
+  background-image: url('/lol-bg.jpg');
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+/* Slight tint helper for components that sit on top of the hero */
+.hero-overlay {
+  /* much lighter overlay so the video shows through — adjust the alpha to taste */
+  background: linear-gradient(180deg, rgba(6,11,22,0.12), rgba(6,11,22,0.18));
+}
+
+/* Video hero helper */
+.hero-video-wrapper {
+  position: relative;
+  overflow: hidden;
+}
+.hero-video-element {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  /* Increase visibility of the video and reduce the darkening filter so it looks natural */
+  opacity: 0.88;
+  filter: saturate(1) contrast(0.98) brightness(0.88);
+}
+.hero-content {
+  position: relative;
+  z-index: 10;
+}
