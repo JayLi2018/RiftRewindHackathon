@@ -80,6 +80,7 @@ target/
 
 # IPython
 profile_default/
+lambda_functions/
 ipython_config.py
 
 # pyenv
