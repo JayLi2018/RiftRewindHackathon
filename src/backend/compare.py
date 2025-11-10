@@ -1,16 +1,30 @@
 """
+High-level comparison utilities.
+
+Designed to match the JSON payload you send from the frontend:
+
+{
+  "riot_id": "gracexing#NA1",
+  "region": "na1",
+  "tier": "DIAMOND",
+  "division": "II",
+  "n_recent": 20,
+  "primary_role": "MIDDLE",
+  "champion": "Akshan"
+}
+
 Usage example (local):
 
 export RIOT_API_KEY="RGAPI-xxxx"
-python compare_player_to_rank.py
+export BUCKET_NAME="bucket-for-actual-project"
 
-or import the functions in another file.
+python compare.py
 """
 
 import os
 import io
 import json
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 
 import boto3
 import pandas as pd
@@ -19,11 +33,35 @@ import urllib3
 # ---------- Config ----------
 
 RIOT_API_KEY = os.getenv("RIOT_API_KEY")
+BUCKET_NAME = os.getenv("BUCKET_NAME", "bucket-for-actual-project")
+
 HTTP = urllib3.PoolManager(num_pools=8, maxsize=16)
 S3 = boto3.client("s3")
 
 # queue 420 = Ranked Solo/Duo
 SOLO_QUEUE_ID = 420
+
+# role alias map so we can be forgiving ("Mid" -> "MIDDLE", "ADC" -> "BOTTOM", etc.)
+ROLE_ALIASES = {
+    "TOP": "TOP",
+    "JUNGLE": "JUNGLE",
+    "MID": "MIDDLE",
+    "MIDDLE": "MIDDLE",
+    "ADC": "BOTTOM",
+    "BOT": "BOTTOM",
+    "BOTTOM": "BOTTOM",
+    "SUPPORT": "UTILITY",
+    "SUP": "UTILITY",
+    "UTILITY": "UTILITY",
+}
+
+
+def normalize_role(role: Optional[str]) -> Optional[str]:
+    if not role:
+        return None
+    key = role.upper()
+    return ROLE_ALIASES.get(key, key)
+
 
 # ---------- Riot helpers ----------
 
@@ -56,7 +94,6 @@ def riot_get_json(url: str) -> Any:
     headers = {"X-Riot-Token": RIOT_API_KEY}
     r = HTTP.request("GET", url, headers=headers)
     if r.status != 200:
-        # simple error message to inspect
         body = r.data.decode("utf-8", errors="ignore")[:300]
         raise RuntimeError(f"Riot API {r.status}: {body}")
     return json.loads(r.data.decode("utf-8"))
@@ -105,13 +142,8 @@ def extract_player_row_from_match(match_id: str, puuid: str) -> Dict[str, Any]:
     Returns a dict with *the same columns* as your CSVs
     for this player in this match.
     """
-    regional = match_id.split("_", 1)[0].lower()  # e.g. NA1_...
-    # But match-v5 uses regional routing (americas/europe/asia/sea), so derive from platform.
-    # To keep this simple, we assume NA/EUW/etc -> americas/europe/asia:
-    # better: pass platform in instead of guessing; for now we default to americas.
-    # If you know platform, you can change this function signature.
-    # We'll just use americas for NA1.
-    # You can improve this if you need multiple regions.
+    # For now we assume NA1 -> americas; if you expand to other regions,
+    # pass platform/region explicitly instead of hardcoding.
     regional_host = platform_to_regional("na1")
 
     url = (
@@ -129,12 +161,11 @@ def extract_player_row_from_match(match_id: str, puuid: str) -> Dict[str, Any]:
     if player is None:
         raise RuntimeError(f"PUUID not found in match {match_id}")
 
-    # build a row that matches your CSV schema as closely as possible
     total_minions = player.get("totalMinionsKilled", 0)
     neutral_minions = player.get("neutralMinionsKilled", 0)
 
     row = {
-        "tier": None,  # we'll fill rank from dataset side, this is per-player
+        "tier": None,  # we'll fill rank context separately
         "individualPosition": player.get("individualPosition"),
         "championName": player.get("championName"),
         "matchId": meta.get("matchId"),
@@ -153,9 +184,7 @@ def extract_player_row_from_match(match_id: str, puuid: str) -> Dict[str, Any]:
         "totalDamageTaken": player.get("totalDamageTaken", 0),
         "visionScore": player.get("visionScore", 0),
         "win": player.get("win", False),
-        "items": [
-            player.get(f"item{i}") for i in range(7)
-        ],  # list, same spirit as your CSV
+        "items": [player.get(f"item{i}") for i in range(7)],
         "summoner1Id": player.get("summoner1Id"),
         "summoner2Id": player.get("summoner2Id"),
     }
@@ -186,16 +215,22 @@ def get_player_dataset(
 def load_rank_dataset_from_s3(
     bucket: str,
     tier: str,
-    division: str,
+    division: Optional[str],
     prefix_root: str = "csv_data/parsed_match_data",
 ) -> pd.DataFrame:
     """
     Loads all CSV parts for a given tier/division from S3 into one DataFrame.
-    Example S3 layout (based on your screenshot):
+
+    Expected S3 layout (from your screenshot):
       csv_data/parsed_match_data/DIAMOND/II/data_DIAMOND_II_part0.csv
+
+    For now we require a division (e.g. "IV", "III", "II", "I") for sub-master tiers.
     """
     tier = tier.upper()
+    if not division:
+        raise RuntimeError("division is required for this dataset layout")
     division = division.upper()
+
     prefix = f"{prefix_root}/{tier}/{division}/"
 
     resp = S3.list_objects_v2(Bucket=bucket, Prefix=prefix)
@@ -230,7 +265,6 @@ def add_derived_stats(df: pd.DataFrame) -> pd.DataFrame:
     df["gold_per_min"] = df["goldEarned"] / minutes
     df["dmg_per_min"] = df["totalDamageDealtToChampions"] / minutes
     df["vision_per_min"] = df["visionScore"] / minutes
-    # Avoid div by zero
     deaths = df["deaths"].replace(0, 1)
     df["kda"] = (df["kills"] + df["assists"]) / deaths
     df["win_numeric"] = df["win"].astype(int)
@@ -243,7 +277,7 @@ def summarize_group(df: pd.DataFrame) -> Dict[str, float]:
     """
     df = add_derived_stats(df)
     summary = {
-        "games": len(df),
+        "games": float(len(df)),
         "avg_kills": df["kills"].mean(),
         "avg_deaths": df["deaths"].mean(),
         "avg_assists": df["assists"].mean(),
@@ -259,42 +293,68 @@ def summarize_group(df: pd.DataFrame) -> Dict[str, float]:
 
 def compare_player_to_rank(
     riot_id: str,
-    platform: str,
-    bucket: str,
+    region: str,
     tier: str,
-    division: str,
+    division: Optional[str],
+    n_recent: int = 20,
+    primary_role: Optional[str] = None,
+    champion: Optional[str] = None,
+    bucket: Optional[str] = None,
     s3_prefix_root: str = "csv_data/parsed_match_data",
-    player_matches: int = 20,
-    lane_filter: bool = True,
 ) -> Dict[str, Any]:
     """
-    High-level function:
-      - loads rank dataset from S3
-      - fetches player's recent ranked games
-      - optionally filters rank dataset to player's main lane
-      - returns a dict you can JSON-ify and send to the frontend
+    High-level function used by the FastAPI endpoint.
+
+    - Loads rank dataset from S3 for (tier, division)
+    - Fetches player's recent ranked solo games from Riot
+    - Optionally filters both datasets by role (teamPosition) and champion
+    - Returns a dict ready to JSON-ify.
     """
-    # 1) Load rank dataset
-    rank_df = load_rank_dataset_from_s3(bucket, tier, division, prefix_root=s3_prefix_root)
+    if bucket is None:
+        bucket = BUCKET_NAME
 
-    # 2) Fetch player dataset
-    player_df = get_player_dataset(riot_id, platform, max_matches=player_matches)
+    tier_upper = tier.upper()
 
-    # 3) Optional: restrict rank dataset to player's most frequent lane
-    if lane_filter:
-        lane = (
-            player_df["individualPosition"]
-            .replace("", pd.NA)
-            .dropna()
-            .mode()
-        )
-        if not lane.empty:
-            main_lane = lane.iloc[0]
-            rank_df = rank_df[rank_df["individualPosition"] == main_lane]
-        else:
-            main_lane = None
-    else:
-        main_lane = None
+    # 1) Load rank dataset for that tier/division
+    rank_df = load_rank_dataset_from_s3(
+        bucket=bucket,
+        tier=tier_upper,
+        division=division,
+        prefix_root=s3_prefix_root,
+    )
+
+    # 2) Fetch player dataset (n_recent ranked solo games)
+    player_df = get_player_dataset(riot_id, platform=region, max_matches=n_recent)
+
+    # 3) Optional filters: role & champion
+    role_key = normalize_role(primary_role)
+
+    if role_key:
+        # filter by teamPosition if present
+        if "teamPosition" in rank_df.columns:
+            rank_df = rank_df[
+                rank_df["teamPosition"].astype(str).str.upper() == role_key
+            ]
+        if "teamPosition" in player_df.columns:
+            player_df = player_df[
+                player_df["teamPosition"].astype(str).str.upper() == role_key
+            ]
+
+    if champion:
+        champ_lower = champion.lower()
+        if "championName" in rank_df.columns:
+            rank_df = rank_df[
+                rank_df["championName"].astype(str).str.lower() == champ_lower
+            ]
+        if "championName" in player_df.columns:
+            player_df = player_df[
+                player_df["championName"].astype(str).str.lower() == champ_lower
+            ]
+
+    if rank_df.empty:
+        raise RuntimeError("Rank dataset is empty after filters.")
+    if player_df.empty:
+        raise RuntimeError("Player dataset is empty after filters.")
 
     # 4) Summaries
     rank_summary = summarize_group(rank_df)
@@ -309,10 +369,13 @@ def compare_player_to_rank(
 
     return {
         "riot_id": riot_id,
-        "platform": platform,
-        "tier": tier,
+        "region": region,
+        "tier": tier_upper,
         "division": division,
-        "lane_used": main_lane,
+        "primary_role": role_key,
+        "champion": champion,
+        "player_games": player_summary["games"],
+        "rank_games": rank_summary["games"],
         "player_summary": player_summary,
         "rank_summary": rank_summary,
         "delta": diff_summary,
@@ -322,17 +385,18 @@ def compare_player_to_rank(
 # ---------- CLI demo ----------
 
 if __name__ == "__main__":
-    # Example: compare GraceXing#NA1 to DIAMOND II using your bucket
-    RESULT = compare_player_to_rank(
+    # Example: compare GraceXing#NA1 to DIAMOND II
+    result = compare_player_to_rank(
         riot_id="GraceXing#NA1",
-        platform="na1",
-        bucket="bucket-for-actual-project",  # <-- change to your bucket name
+        region="na1",
         tier="DIAMOND",
         division="II",
+        n_recent=20,
+        primary_role="MIDDLE",
+        champion=None,
+        bucket=BUCKET_NAME,
         s3_prefix_root="csv_data/parsed_match_data",
-        player_matches=20,
-        lane_filter=True,
     )
-    # Pretty-print a compact view
     import pprint
-    pprint.pp(RESULT)
+
+    pprint.pp(result)

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 interface RoleStepProps {
   onSubmit: (roles: string[]) => void;
   onBack: () => void;
+  onSkip?: () => void;        // 👈 NEW (optional)
 }
 
 const roles = [
@@ -14,7 +15,7 @@ const roles = [
   { name: "Support", icon: "🛡️" },
 ];
 
-const RoleStep = ({ onSubmit, onBack }: RoleStepProps) => {
+const RoleStep = ({ onSubmit, onBack, onSkip }: RoleStepProps) => {
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
 
   const handleRoleToggle = (roleName: string) => {
@@ -28,6 +29,15 @@ const RoleStep = ({ onSubmit, onBack }: RoleStepProps) => {
   const handleSubmit = () => {
     if (selectedRoles.length >= 1) {
       onSubmit(selectedRoles);
+    }
+  };
+
+  const handleSkip = () => {
+    if (onSkip) {
+      onSkip();
+    } else {
+      // fallback: treat "skip" as no-role preference
+      onSubmit([]);
     }
   };
 
@@ -83,6 +93,18 @@ const RoleStep = ({ onSubmit, onBack }: RoleStepProps) => {
         >
           Back
         </Button>
+
+        {onSkip && (
+          <Button
+            onClick={handleSkip}
+            variant="outline"
+            size="lg"
+            className="min-w-32 border-border hover:border-primary"
+          >
+            Skip
+          </Button>
+        )}
+
         <Button
           onClick={handleSubmit}
           disabled={selectedRoles.length === 0}

@@ -6,6 +6,7 @@ import { Search } from "lucide-react";
 interface ChampionStepProps {
   onSubmit: (champions: string[]) => void;
   onBack: () => void;
+  onSkip?: () => void; // 👈 NEW (optional)
 }
 
 // Placeholder champion list (alphabetical order)
@@ -45,9 +46,9 @@ const allChampions = [
   "Ziggs", "Zilean", "Zoe", "Zyra",
 ];
 
-const CHAMPION_JSON_URL = "/lol/15.22.1/data/en_US/champion.json"; // adjust if you stage a different version
+const CHAMPION_JSON_URL = "/lol/15.22.1/data/en_US/champion.json"; // adjust if needed
 
-const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
+const ChampionStep = ({ onSubmit, onBack, onSkip }: ChampionStepProps) => {
   const [selectedChampions, setSelectedChampions] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [nameToSlug, setNameToSlug] = useState<Record<string, string>>({});
@@ -58,7 +59,7 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
 
   useEffect(() => {
     let mounted = true;
-    // Fetch the champion.json from the public assets to map display names -> slug/file
+
     fetch(CHAMPION_JSON_URL)
       .then((r) => {
         if (!r.ok) throw new Error(`Failed to fetch ${CHAMPION_JSON_URL}: ${r.status}`);
@@ -67,7 +68,6 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
       .then((data) => {
         if (!mounted) return;
         const map: Record<string, string> = {};
-        // data structure: { data: { <slug>: { name: "Aurelion Sol", ... } } }
         for (const slug of Object.keys(data.data || {})) {
           const entry = data.data[slug];
           if (entry && entry.name) {
@@ -77,10 +77,10 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
         setNameToSlug(map);
       })
       .catch(() => {
-        // ignore; leave mapping empty and fallback to placeholder
+        // ignore; fall back to emoji avatars
       });
 
-    return () => {
+  return () => {
       mounted = false;
     };
   }, []);
@@ -89,10 +89,7 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
     if (selectedChampions.includes(champion)) {
       setSelectedChampions(selectedChampions.filter((c) => c !== champion));
     } else {
-      // Prevent selecting more than 2 champions
-      if (selectedChampions.length >= 2) {
-        return; // ignore additional selections until user deselects
-      }
+      if (selectedChampions.length >= 2) return;
       setSelectedChampions([...selectedChampions, champion]);
     }
   };
@@ -103,12 +100,20 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
     }
   };
 
+  const handleSkipClick = () => {
+    // Let the wizard decide what to do when skipping
+    if (onSkip) {
+      onSkip();
+    } else {
+      // Fallback: treat skip as "no champion filter"
+      onSubmit([]);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="text-center space-y-2">
-        <h2 className="text-4xl font-bold text-primary">
-          Select Your Champions
-        </h2>
+        <h2 className="text-4xl font-bold text-primary">Select Your Champions</h2>
         <p className="text-muted-foreground">
           Choose the champions you want coaching for
         </p>
@@ -157,7 +162,6 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
                           alt={champion}
                           className="w-20 h-20 object-contain rounded"
                           onError={(e) => {
-                            // hide broken image and fall back to emoji
                             (e.target as HTMLImageElement).style.display = "none";
                           }}
                         />
@@ -203,6 +207,18 @@ const ChampionStep = ({ onSubmit, onBack }: ChampionStepProps) => {
         >
           Back
         </Button>
+
+        {onSkip && (
+          <Button
+            onClick={handleSkipClick}
+            variant="outline"
+            size="lg"
+            className="min-w-32 border-border hover:border-primary"
+          >
+            Skip
+          </Button>
+        )}
+
         <Button
           onClick={handleSubmit}
           disabled={selectedChampions.length === 0}
