@@ -14,13 +14,18 @@ const CoachingWizard = () => {
   const [selectedRank, setSelectedRank] = useState({ tier: "", division: "" });
   const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
   const [selectedChampions, setSelectedChampions] = useState<string[]>([]);
-const [recentCount, setRecentCount] = useState<number>(20);
-const [recentCountInput, setRecentCountInput] = useState<string>("20");
+  const [recentCount, setRecentCount] = useState<number>(20);
+  const [recentCountInput, setRecentCountInput] = useState<string>("20");
 
   // comparison state
   const [isComparing, setIsComparing] = useState(false);
   const [compareError, setCompareError] = useState<string | null>(null);
   const [compareResult, setCompareResult] = useState<any | null>(null);
+
+  // coaching state
+  const [coachText, setCoachText] = useState<string | null>(null);
+  const [isCoaching, setIsCoaching] = useState(false);
+  const [coachError, setCoachError] = useState<string | null>(null);
 
   // ---- step handlers ----
   const handleUsernameSubmit = (name: string) => {
@@ -44,6 +49,34 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
     setCurrentStep("champion");
   };
 
+  // --- Bedrock coach call ---
+  const callCoach = async (comparison: any) => {
+    setIsCoaching(true);
+    setCoachError(null);
+    setCoachText(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/coach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ comparison_json: comparison }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Coach request failed with status ${res.status}`);
+      }
+
+      const data = await res.json();
+      setCoachText(data.coach_text ?? "");
+    } catch (err: any) {
+      setCoachError(err?.message ?? "Failed to generate coaching tips.");
+    } finally {
+      setIsCoaching(false);
+    }
+  };
+
+  // --- Compare + auto-coach ---
   const runCompare = async (champions: string[]) => {
     setSelectedChampions(champions);
 
@@ -58,9 +91,12 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
 
     const primaryChampion = champions[0] ?? null;
 
+    // reset comparison + coaching state
     setIsComparing(true);
     setCompareError(null);
     setCompareResult(null);
+    setCoachText(null);
+    setCoachError(null);
 
     try {
       const payload = {
@@ -86,6 +122,9 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
 
       const data = await res.json();
       setCompareResult(data);
+
+      // 🔥 auto-call Bedrock coach with the comparison JSON
+      void callCoach(data);
     } catch (err: any) {
       setCompareError(err?.message ?? "Something went wrong running compare.");
     } finally {
@@ -94,7 +133,7 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
   };
 
   const handleChampionSubmit = async (champions: string[]) => {
-    // When user selects champs and hits Get Coaching
+    // User picked champ(s) and clicked Get Coaching
     await runCompare(champions);
   };
 
@@ -157,19 +196,19 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
               onSkip={handleChampionSkip}
             />
 
-            {/* right: comparison panel – ONLY visible on champion step */}
+            {/* right: comparison + coaching panel */}
             <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 md:p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-50">
                 Compare yourself to a target rank
               </h2>
 
               {/* Recent matches input */}
-             <div className="space-y-1">
+              <div className="space-y-1">
                 <h3 className="text-sm font-medium text-zinc-300">
                   Number of recent ranked games to analyze
                 </h3>
                 <p className="text-xs text-zinc-500">
-                  We&rsquo;ll fetch this many of your most recent Ranked Solo/Duo games.
+                  We&apos;ll fetch this many of your most recent Ranked Solo/Duo games.
                 </p>
 
                 <input
@@ -179,17 +218,15 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
                   step={1}
                   value={recentCountInput}
                   onChange={(e) => {
-                    // Let the user freely edit, including empty string.
+                    // allow empty/partial input
                     setRecentCountInput(e.target.value);
                   }}
                   onBlur={() => {
                     const v = Number(recentCountInput);
                     if (Number.isNaN(v) || !recentCountInput.trim()) {
-                      // If they leave it empty/invalid, fall back to previous value
                       setRecentCountInput(String(recentCount));
                       return;
                     }
-                    // Clamp between 1 and 100 (or whatever bounds you want)
                     const clamped = Math.min(100, Math.max(1, v));
                     setRecentCount(clamped);
                     setRecentCountInput(String(clamped));
@@ -206,7 +243,7 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
                 <p className="text-sm text-red-400 break-words">{compareError}</p>
               )}
 
-              {/* Only show the summaries when we *have* a result */}
+              {/* Only show summaries when we have a comparison */}
               {compareResult && (
                 <>
                   <div className="space-y-3 text-xs md:text-sm">
@@ -334,7 +371,28 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
                     })}
                   </div>
 
-                  {/* Raw JSON moved to the bottom for debugging */}
+                  {/* Coaching output */}
+                  <div className="mt-4 space-y-2">
+                    {isCoaching && (
+                      <p className="text-xs text-zinc-400">
+                        Generating coaching tips from your comparison…
+                      </p>
+                    )}
+
+                    {coachError && (
+                      <p className="text-xs text-red-400 break-words">
+                        {coachError}
+                      </p>
+                    )}
+
+                    {coachText && !isCoaching && (
+                      <div className="rounded-xl border border-zinc-800 bg-black/60 p-4 text-sm whitespace-pre-wrap">
+                        {coachText}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Raw JSON at bottom for debugging */}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
                       Debug: show raw comparison JSON
@@ -348,11 +406,11 @@ const [recentCountInput, setRecentCountInput] = useState<string>("20");
 
               {!isComparing && !compareError && !compareResult && (
                 <p className="text-xs text-zinc-500">
-                  Select your role and champion, then click{" "}
+                  Select your role and/or champion (or skip them), then click{" "}
                   <span className="font-semibold text-zinc-300">
                     Get Coaching
                   </span>{" "}
-                  to run the comparison.
+                  to run the comparison and generate tips.
                 </p>
               )}
             </div>
