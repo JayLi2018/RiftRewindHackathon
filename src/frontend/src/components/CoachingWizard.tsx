@@ -8,8 +8,10 @@ import ChampionStep from "./steps/ChampionStep";
 
 export type WizardStep = "username" | "rank" | "role" | "champion";
 
-const API_BASE = "http://localhost:8000"; // FastAPI backend
-
+// const API_BASE = "http://localhost:8000"; // FastAPI backend
+// const API_BASE = "http://ec2-18-118-161-26.us-east-2.compute.amazonaws.com";
+const API_BASE =
+  import.meta.env.VITE_API_BASE || "http://localhost:8000";
 const CoachingWizard = () => {
   const [currentStep, setCurrentStep] = useState<WizardStep>("username");
   const [username, setUsername] = useState("");
