@@ -1,6 +1,6 @@
 // Netlify Function: proxy /coach to your EC2 backend
 const BACKEND_COACH_URL =
-  "http://ec2-18-118-161-26.us-east-2.compute.amazonaws.com/coach";
+  "http://ec2-3-18-108-243.us-east-2.compute.amazonaws.com/coach";
 
 exports.handler = async (event) => {
   try {
