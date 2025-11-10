@@ -1,5 +1,6 @@
 // src/frontend/src/components/CoachingWizard.tsx
 import { useState } from "react";
+import ReactMarkdown from 'react-markdown';
 import UsernameStep from "./steps/UsernameStep";
 import RankStep from "./steps/RankStep";
 import RoleStep from "./steps/RoleStep";
@@ -238,7 +239,9 @@ const CoachingWizard = () => {
                     {/* Speech bubble */}
                     <div className="relative flex-1">
                       <div className="rounded-2xl bg-zinc-900/90 border border-amber-400/70 px-4 py-3 text-xs md:text-sm leading-relaxed text-zinc-100">
-                        {coachText}
+                        <ReactMarkdown>
+                          {coachText}
+                        </ReactMarkdown>
                       </div>
                       {/* little tail */}
                       <div className="absolute left-6 top-3 h-3 w-3 bg-zinc-900/90 border-l border-b border-amber-400/70 rotate-45" />
