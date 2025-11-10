@@ -1,3 +1,4 @@
+// src/frontend/src/components/CoachingWizard.tsx
 import { useState } from "react";
 import UsernameStep from "./steps/UsernameStep";
 import RankStep from "./steps/RankStep";
@@ -49,7 +50,7 @@ const CoachingWizard = () => {
     setCurrentStep("champion");
   };
 
-  // --- Bedrock coach call ---
+  // ---- backend calls ----
   const callCoach = async (comparison: any) => {
     setIsCoaching(true);
     setCoachError(null);
@@ -76,7 +77,6 @@ const CoachingWizard = () => {
     }
   };
 
-  // --- Compare + auto-coach ---
   const runCompare = async (champions: string[]) => {
     setSelectedChampions(champions);
 
@@ -91,22 +91,22 @@ const CoachingWizard = () => {
 
     const primaryChampion = champions[0] ?? null;
 
-    // reset comparison + coaching state
     setIsComparing(true);
     setCompareError(null);
     setCompareResult(null);
+    // also reset coaching state before new run
     setCoachText(null);
     setCoachError(null);
 
     try {
       const payload = {
-        riot_id: username.trim(),           // e.g. "GraceXing#NA1"
+        riot_id: username.trim(), // e.g. "GraceXing#NA1"
         region: "na1",
-        tier: selectedRank.tier,            // "DIAMOND"
+        tier: selectedRank.tier, // "DIAMOND"
         division: selectedRank.division || null, // "II" or null
-        n_recent: recentCount,              // user-adjustable
-        primary_role: primaryRole,          // or null
-        champion: primaryChampion,          // or null
+        n_recent: recentCount,
+        primary_role: primaryRole,
+        champion: primaryChampion,
       };
 
       const res = await fetch(`${API_BASE}/compare`, {
@@ -123,7 +123,7 @@ const CoachingWizard = () => {
       const data = await res.json();
       setCompareResult(data);
 
-      // 🔥 auto-call Bedrock coach with the comparison JSON
+      // auto-call coach after a successful compare
       void callCoach(data);
     } catch (err: any) {
       setCompareError(err?.message ?? "Something went wrong running compare.");
@@ -133,15 +133,15 @@ const CoachingWizard = () => {
   };
 
   const handleChampionSubmit = async (champions: string[]) => {
-    // User picked champ(s) and clicked Get Coaching
     await runCompare(champions);
   };
 
   const handleChampionSkip = async () => {
-    // Skip champion filter -> compare across all champs
+    // compare across all champs
     await runCompare([]);
   };
 
+  // background video
   const videoSrc = "/lol-bg.mp4";
 
   return (
@@ -186,17 +186,79 @@ const CoachingWizard = () => {
           </>
         )}
 
-        {/* STEP 4: champion selection + compare panel */}
+        {/* STEP 4: champion selection + compare panel + coaching */}
         {currentStep === "champion" && (
           <div className="grid gap-6 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)] items-start">
-            {/* left: champion selection */}
-            <ChampionStep
-              onSubmit={handleChampionSubmit}
-              onBack={() => setCurrentStep("role")}
-              onSkip={handleChampionSkip}
-            />
+            {/* LEFT: champion selector + coaching bubble */}
+            <div className="space-y-4">
+              <ChampionStep
+                onSubmit={handleChampionSubmit}
+                onBack={() => setCurrentStep("role")}
+                onSkip={handleChampionSkip}
+              />
 
-            {/* right: comparison + coaching panel */}
+              {/* Coaching bubble block */}
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 md:p-5 space-y-3">
+                <h2 className="text-sm font-semibold text-zinc-50">
+                  Personalized coaching
+                </h2>
+
+                {isCoaching && !coachText && (
+                  <p className="text-xs text-zinc-400">
+                    Summoning your coach from the Rift…
+                  </p>
+                )}
+
+                {coachError && (
+                  <p className="text-xs text-red-400 break-words">{coachError}</p>
+                )}
+
+                {coachText && (
+                  <div className="flex items-start gap-3">
+                    {/* Avatar: dynamic champion icon */}
+                    <div className="flex-shrink-0">
+                      <div className="h-14 w-14 overflow-hidden rounded-full border border-amber-400/70 bg-zinc-900">
+                        {selectedChampions.length > 0 ? (
+                          <img
+                            src={`/lol/15.22.1/img/champion/${selectedChampions[0]}.png`}
+                            alt={selectedChampions[0]}
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-zinc-400 text-xs">
+                            ?
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Speech bubble */}
+                    <div className="relative flex-1">
+                      <div className="rounded-2xl bg-zinc-900/90 border border-amber-400/70 px-4 py-3 text-xs md:text-sm leading-relaxed text-zinc-100">
+                        {coachText}
+                      </div>
+                      {/* little tail */}
+                      <div className="absolute left-6 top-3 h-3 w-3 bg-zinc-900/90 border-l border-b border-amber-400/70 rotate-45" />
+                    </div>
+                  </div>
+                )}
+
+                {!isCoaching && !coachError && !coachText && (
+                  <p className="text-xs text-zinc-500">
+                    Select a champion and click{" "}
+                    <span className="font-semibold text-zinc-300">
+                      Get Coaching
+                    </span>{" "}
+                    to get tailored advice.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT: comparison panel */}
             <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 md:p-6 space-y-4">
               <h2 className="text-lg font-semibold text-zinc-50">
                 Compare yourself to a target rank
@@ -208,7 +270,8 @@ const CoachingWizard = () => {
                   Number of recent ranked games to analyze
                 </h3>
                 <p className="text-xs text-zinc-500">
-                  We&apos;ll fetch this many of your most recent Ranked Solo/Duo games.
+                  We&rsquo;ll fetch this many of your most recent Ranked Solo/Duo
+                  games.
                 </p>
 
                 <input
@@ -218,7 +281,6 @@ const CoachingWizard = () => {
                   step={1}
                   value={recentCountInput}
                   onChange={(e) => {
-                    // allow empty/partial input
                     setRecentCountInput(e.target.value);
                   }}
                   onBlur={() => {
@@ -243,7 +305,7 @@ const CoachingWizard = () => {
                 <p className="text-sm text-red-400 break-words">{compareError}</p>
               )}
 
-              {/* Only show summaries when we have a comparison */}
+              {/* Only show the summaries when we *have* a result */}
               {compareResult && (
                 <>
                   <div className="space-y-3 text-xs md:text-sm">
@@ -281,14 +343,14 @@ const CoachingWizard = () => {
                   <div className="grid grid-cols-2 gap-3 text-xs md:text-sm">
                     {[
                       {
-                        key: "avg_kda",
-                        label: "KDA",
-                        format: (v: number) => v.toFixed(2),
-                      },
-                      {
                         key: "win_rate",
                         label: "Win rate",
                         format: (v: number) => (v * 100).toFixed(1) + "%",
+                      },
+                      {
+                        key: "avg_kda",
+                        label: "KDA",
+                        format: (v: number) => v.toFixed(2),
                       },
                       {
                         key: "avg_cs_per_min",
@@ -371,27 +433,6 @@ const CoachingWizard = () => {
                     })}
                   </div>
 
-                  {/* Coaching output */}
-                  <div className="mt-4 space-y-2">
-                    {isCoaching && (
-                      <p className="text-xs text-zinc-400">
-                        Generating coaching tips from your comparison…
-                      </p>
-                    )}
-
-                    {coachError && (
-                      <p className="text-xs text-red-400 break-words">
-                        {coachError}
-                      </p>
-                    )}
-
-                    {coachText && !isCoaching && (
-                      <div className="rounded-xl border border-zinc-800 bg-black/60 p-4 text-sm whitespace-pre-wrap">
-                        {coachText}
-                      </div>
-                    )}
-                  </div>
-
                   {/* Raw JSON at bottom for debugging */}
                   <details className="mt-2">
                     <summary className="cursor-pointer text-xs text-zinc-500 hover:text-zinc-300">
@@ -406,11 +447,11 @@ const CoachingWizard = () => {
 
               {!isComparing && !compareError && !compareResult && (
                 <p className="text-xs text-zinc-500">
-                  Select your role and/or champion (or skip them), then click{" "}
+                  Select your role and champion, then click{" "}
                   <span className="font-semibold text-zinc-300">
                     Get Coaching
                   </span>{" "}
-                  to run the comparison and generate tips.
+                  to run the comparison.
                 </p>
               )}
             </div>
